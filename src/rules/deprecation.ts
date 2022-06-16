@@ -57,18 +57,24 @@ export default createRule<Options, MessageIds>({
 function createRuleForIdentifier(
   context: TSESLint.RuleContext<'deprecated', Options>,
 ): TSESLint.RuleFunction<TSESTree.JSXIdentifier | TSESTree.Identifier> {
+
+
+  const services = ESLintUtils.getParserServices(context);
+
+  const includesImport = (anc: TSESTree.Node) => anc.type.includes('Import')
+
   return function identifierRule(id) {
-    const services = ESLintUtils.getParserServices(context);
+
+    const ancestors = context.getAncestors()
 
     // Don't consider deprecations in certain cases:
     // - Inside an import
-    const isInsideImport = context
-      .getAncestors()
-      .some(anc => anc.type.includes('Import'));
+    const isInsideImport = ancestors
+      .some(includesImport);
     // - At the spot where something is declared
     const isIdDeclaration =
       (id.type === 'Identifier' || id.type === 'JSXIdentifier') &&
-      isDeclaration(id, context);
+      isDeclaration(id, ancestors);
     // - On JSX closing elements (only flag the opening element)
     const isClosingElement =
       id.type === 'JSXIdentifier' && id.parent?.type === 'JSXClosingElement';
@@ -76,7 +82,7 @@ function createRuleForIdentifier(
       return;
     }
 
-    const deprecation = getDeprecation(id, services, context);
+    const deprecation = getDeprecation(id, services, ancestors);
     if (deprecation) {
       context.report({
         node: id,
@@ -90,8 +96,7 @@ function createRuleForIdentifier(
   };
 }
 
-function getParent(context: TSESLint.RuleContext<MessageIds, Options>) {
-  const ancestors = context.getAncestors();
+function getParent(ancestors: TSESTree.Node[]) {
   return ancestors.length > 0 ? ancestors[ancestors.length - 1] : undefined;
 }
 
@@ -101,9 +106,9 @@ let lastProcessedDuplicateName: string | undefined;
 
 function isDeclaration(
   id: TSESTree.Identifier | TSESTree.JSXIdentifier,
-  context: TSESLint.RuleContext<MessageIds, Options>,
+  ancestors:  TSESTree.Node[],
 ) {
-  const parent = getParent(context);
+  const parent = getParent(ancestors);
 
   switch (parent?.type) {
     case 'TSEnumDeclaration':
@@ -185,10 +190,10 @@ function isDeclaration(
 function getDeprecation(
   id: TSESTree.Identifier | TSESTree.JSXIdentifier,
   services: RequiredParserServices,
-  context: TSESLint.RuleContext<MessageIds, Options>,
+  ancestors: TSESTree.Node[]
 ) {
   const tc = services.program.getTypeChecker();
-  const callExpression = getCallExpression(context, id);
+  const callExpression = getCallExpression(ancestors, id);
 
   if (callExpression) {
     const tsCallExpression = services.esTreeNodeToTSNodeMap.get(
@@ -252,10 +257,9 @@ function getSymbol(
 }
 
 function getCallExpression(
-  context: TSESLint.RuleContext<MessageIds, Options>,
+  ancestors: TSESTree.Node[],
   id: TSESTree.Node,
 ): TSESTree.CallExpression | TSESTree.TaggedTemplateExpression | undefined {
-  const ancestors = context.getAncestors();
   let callee = id;
   let parent =
     ancestors.length > 0 ? ancestors[ancestors.length - 1] : undefined;
